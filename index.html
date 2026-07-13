@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>ビジネス単語帖</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#22303F" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="単語帖" />
+
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  body { margin: 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ---- 日付ユーティリティ ----
+const fmtKey = (d) => {
+  const dt = new Date(d);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+const fmtJP = (key) => {
+  const [y, m, d] = key.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return { y, m, d, w: WEEK[dt.getDay()] };
+};
+const relLabel = (key) => {
+  const today = fmtKey(new Date());
+  const yest = fmtKey(new Date(Date.now() - 86400000));
+  if (key === today) return "今日";
+  if (key === yest) return "昨日";
+  return null;
+};
+
+// ---- localStorage 保存 ----
+const STORAGE_KEY = "bizwords:all";
+const loadWords = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+};
+const saveWords = (words) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+    return true;
+  } catch (e) { return false; }
+};
+
+// ---- 日付印(スタンプ) ----
+const DateStamp = ({ dateKey, count }) => {
+  const { y, m, d, w } = fmtJP(dateKey);
+  return (
+    <div style={{
+      width: 76, height: 76, borderRadius: "50%",
+      border: "2.5px solid #C73E3A", color: "#C73E3A",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      fontFamily: "'Shippori Mincho', serif", flexShrink: 0,
+      transform: "rotate(-4deg)", background: "rgba(199,62,58,0.03)",
+      lineHeight: 1.15,
+    }}>
+      <div style={{ fontSize: 10, borderBottom: "1.5px solid #C73E3A", padding: "0 8px 2px", letterSpacing: 1 }}>{y}</div>
+      <div style={{ fontSize: 17, fontWeight: 700, padding: "2px 0" }}>{m}.{d}</div>
+      <div style={{ fontSize: 9, borderTop: "1.5px solid #C73E3A", padding: "2px 8px 0", letterSpacing: 2 }}>{w}曜・{count}語</div>
+    </div>
+  );
+};
+
+function App() {
+  const [words, setWords] = useState(loadWords);
+  const [term, setTerm] = useState("");
+  const [meaning, setMeaning] = useState("");
+  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState("record");
+  const [revealed, setRevealed] = useState({});
+  const [saveState, setSaveState] = useState("");
+
+  const persist = useCallback((next) => {
+    setWords(next);
+    const ok = saveWords(next);
+    setSaveState(ok ? "保存しました" : "保存に失敗しました");
+    setTimeout(() => setSaveState(""), 1500);
+  }, []);
+
+  const addWord = () => {
+    if (!term.trim() || !meaning.trim()) return;
+    const entry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      term: term.trim(),
+      meaning: meaning.trim(),
+      date: fmtKey(new Date()),
+      ts: Date.now(),
+    };
+    persist([entry, ...words]);
+    setTerm("");
+    setMeaning("");
+  };
+
+  const removeWord = (id) => persist(words.filter((w) => w.id !== id));
+
+  const filtered = query.trim()
+    ? words.filter((w) => (w.term + w.meaning).toLowerCase().includes(query.trim().toLowerCase()))
+    : words;
+
+  const groups = [];
+  const map = {};
+  for (const w of filtered) {
+    if (!map[w.date]) { map[w.date] = []; groups.push(w.date); }
+    map[w.date].push(w);
+  }
+
+  const todayCount = words.filter((w) => w.date === fmtKey(new Date())).length;
+
+  const S = {
+    page: {
+      minHeight: "100vh", background: "#FCFCFA", color: "#22303F",
+      fontFamily: "'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', sans-serif",
+    },
+    wrap: { maxWidth: 640, margin: "0 auto", padding: "28px 18px 80px" },
+    input: {
+      width: "100%", boxSizing: "border-box", padding: "12px 14px",
+      border: "1px solid #D8DCE0", borderRadius: 8, fontSize: 16,
+      background: "#fff", color: "#22303F", outline: "none",
+      fontFamily: "inherit",
+    },
+    btn: {
+      padding: "12px 28px", background: "#22303F", color: "#FCFCFA",
+      border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700,
+      cursor: "pointer", letterSpacing: 2, fontFamily: "inherit",
+    },
+  };
+
+  return (
+    <div style={S.page}>
+      <div style={S.wrap}>
+
+        <header style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", borderBottom: "3px double #22303F", paddingBottom: 14, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: 4, color: "#6B7280", marginBottom: 4 }}>BUSINESS WORD JOURNAL</div>
+            <h1 style={{ margin: 0, fontFamily: "'Shippori Mincho', serif", fontSize: 26, fontWeight: 700, letterSpacing: 2 }}>ビジネス単語帖</h1>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 12, color: "#6B7280", lineHeight: 1.7 }}>
+            収録 <strong style={{ color: "#22303F", fontSize: 16 }}>{words.length}</strong> 語<br />
+            今日 <strong style={{ color: "#C73E3A", fontSize: 16 }}>{todayCount}</strong> 語
+          </div>
+        </header>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
+          {[["record", "記録する"], ["review", "復習する"]].map(([k, label]) => (
+            <button key={k} onClick={() => { setTab(k); setRevealed({}); }}
+              style={{
+                flex: 1, padding: "10px 0", fontSize: 14, fontWeight: 700, letterSpacing: 3,
+                fontFamily: "inherit", cursor: "pointer", borderRadius: 8,
+                border: tab === k ? "1.5px solid #22303F" : "1.5px solid #D8DCE0",
+                background: tab === k ? "#22303F" : "#fff",
+                color: tab === k ? "#FCFCFA" : "#6B7280",
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "record" && (
+          <React.Fragment>
+            <div style={{ background: "#fff", border: "1px solid #D8DCE0", borderRadius: 12, padding: 18, marginBottom: 10 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#6B7280" }}>単語</label>
+              <input style={{ ...S.input, marginTop: 6, marginBottom: 14, fontFamily: "'Shippori Mincho', serif", fontSize: 18 }}
+                value={term} onChange={(e) => setTerm(e.target.value)}
+                placeholder="例:イニシアチブ" />
+              <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#6B7280" }}>意味</label>
+              <textarea style={{ ...S.input, marginTop: 6, marginBottom: 14, minHeight: 70, resize: "vertical" }}
+                value={meaning} onChange={(e) => setMeaning(e.target.value)}
+                placeholder="例:主導権。自ら率先して物事を進めること。" />
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button style={{ ...S.btn, opacity: term.trim() && meaning.trim() ? 1 : 0.35 }} onClick={addWord}>
+                  記帳する
+                </button>
+                <span style={{ fontSize: 12, color: saveState.includes("失敗") ? "#C73E3A" : "#6B7280" }}>{saveState}</span>
+              </div>
+            </div>
+
+            <input style={{ ...S.input, marginBottom: 24 }} value={query}
+              onChange={(e) => setQuery(e.target.value)} placeholder="単語・意味を検索" />
+
+            {words.length === 0 && (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "#6B7280", lineHeight: 2 }}>
+                <div style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 18, color: "#22303F" }}>まだ一語もありません</div>
+                今日出会ったビジネス用語を、上の欄から記帳しましょう。
+              </div>
+            )}
+
+            {words.length > 0 && filtered.length === 0 && (
+              <p style={{ color: "#6B7280", textAlign: "center" }}>「{query}」に一致する単語はありません。</p>
+            )}
+
+            {groups.map((dateKey) => (
+              <section key={dateKey} style={{ marginBottom: 30 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
+                  <DateStamp dateKey={dateKey} count={map[dateKey].length} />
+                  {relLabel(dateKey) && (
+                    <span style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 15, fontWeight: 700 }}>{relLabel(dateKey)}</span>
+                  )}
+                  <div style={{ flex: 1, borderBottom: "1px solid #D8DCE0" }} />
+                </div>
+                {map[dateKey].map((w) => (
+                  <div key={w.id} style={{
+                    background: "#fff", border: "1px solid #D8DCE0", borderLeft: "4px solid #22303F",
+                    borderRadius: 8, padding: "14px 16px", marginBottom: 10,
+                    display: "flex", justifyContent: "space-between", gap: 12,
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{w.term}</div>
+                      <div style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{w.meaning}</div>
+                    </div>
+                    <button onClick={() => removeWord(w.id)}
+                      style={{ border: "none", background: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 13, flexShrink: 0, fontFamily: "inherit", alignSelf: "flex-start" }}>
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </section>
+            ))}
+          </React.Fragment>
+        )}
+
+        {tab === "review" && (
+          <React.Fragment>
+            {words.length === 0 ? (
+              <p style={{ color: "#6B7280", textAlign: "center", padding: "40px 0" }}>単語を記帳すると、ここで復習できます。</p>
+            ) : (
+              <React.Fragment>
+                <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 16 }}>カードをタップすると意味が表示されます。</p>
+                {words.map((w) => {
+                  const open = !!revealed[w.id];
+                  return (
+                    <button key={w.id}
+                      onClick={() => setRevealed((r) => ({ ...r, [w.id]: !r[w.id] }))}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left", boxSizing: "border-box",
+                        background: open ? "#22303F" : "#fff",
+                        color: open ? "#FCFCFA" : "#22303F",
+                        border: "1px solid #D8DCE0", borderRadius: 10,
+                        padding: "16px 18px", marginBottom: 10, cursor: "pointer",
+                        fontFamily: "inherit", transition: "background .15s",
+                      }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                        <span style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 18, fontWeight: 700 }}>{w.term}</span>
+                        <span style={{ fontSize: 11, color: open ? "#B7C0CC" : "#9CA3AF" }}>{w.date.replaceAll("-", "/")}</span>
+                      </div>
+                      {open && (
+                        <div style={{ fontSize: 14, lineHeight: 1.7, marginTop: 10, whiteSpace: "pre-wrap" }}>{w.meaning}</div>
+                      )}
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            )}
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+
+<!-- Service Worker 登録（オフライン起動・ホーム画面追加を有効化） -->
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW登録失敗", e));
+    });
+  }
+</script>
+</body>
+</html>
