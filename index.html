@@ -91,6 +91,9 @@ function App() {
   const [tab, setTab] = useState("record");
   const [revealed, setRevealed] = useState({});
   const [saveState, setSaveState] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editTerm, setEditTerm] = useState("");
+  const [editMeaning, setEditMeaning] = useState("");
 
   const persist = useCallback((next) => {
     setWords(next);
@@ -100,7 +103,7 @@ function App() {
   }, []);
 
   const addWord = () => {
-    if (!term.trim() || !meaning.trim()) return;
+    if (!term.trim()) return;
     const entry = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       term: term.trim(),
@@ -113,7 +116,28 @@ function App() {
     setMeaning("");
   };
 
-  const removeWord = (id) => persist(words.filter((w) => w.id !== id));
+  const removeWord = (id) => {
+    if (editingId === id) setEditingId(null);
+    persist(words.filter((w) => w.id !== id));
+  };
+
+  const startEdit = (w) => {
+    setEditingId(w.id);
+    setEditTerm(w.term);
+    setEditMeaning(w.meaning);
+  };
+  const cancelEdit = () => setEditingId(null);
+  const saveEdit = (id) => {
+    if (!editTerm.trim()) return;
+    persist(words.map((w) => w.id === id ? {
+      ...w,
+      term: editTerm.trim(),
+      meaning: editMeaning.trim(),
+      editedDate: fmtKey(new Date()),
+      editedTs: Date.now(),
+    } : w));
+    setEditingId(null);
+  };
 
   const filtered = query.trim()
     ? words.filter((w) => (w.term + w.meaning).toLowerCase().includes(query.trim().toLowerCase()))
@@ -184,12 +208,12 @@ function App() {
               <input style={{ ...S.input, marginTop: 6, marginBottom: 14, fontFamily: "'Shippori Mincho', serif", fontSize: 18 }}
                 value={term} onChange={(e) => setTerm(e.target.value)}
                 placeholder="例:イニシアチブ" />
-              <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#6B7280" }}>意味</label>
+              <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#6B7280" }}>意味<span style={{ fontWeight: 400, marginLeft: 8, letterSpacing: 0 }}>（空欄でも記帳できます・あとで編集可）</span></label>
               <textarea style={{ ...S.input, marginTop: 6, marginBottom: 14, minHeight: 70, resize: "vertical" }}
                 value={meaning} onChange={(e) => setMeaning(e.target.value)}
                 placeholder="例:主導権。自ら率先して物事を進めること。" />
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button style={{ ...S.btn, opacity: term.trim() && meaning.trim() ? 1 : 0.35 }} onClick={addWord}>
+                <button style={{ ...S.btn, opacity: term.trim() ? 1 : 0.35 }} onClick={addWord}>
                   記帳する
                 </button>
                 <span style={{ fontSize: 12, color: saveState.includes("失敗") ? "#C73E3A" : "#6B7280" }}>{saveState}</span>
@@ -223,16 +247,57 @@ function App() {
                   <div key={w.id} style={{
                     background: "#fff", border: "1px solid #D8DCE0", borderLeft: "4px solid #22303F",
                     borderRadius: 8, padding: "14px 16px", marginBottom: 10,
-                    display: "flex", justifyContent: "space-between", gap: 12,
                   }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{w.term}</div>
-                      <div style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{w.meaning}</div>
-                    </div>
-                    <button onClick={() => removeWord(w.id)}
-                      style={{ border: "none", background: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 13, flexShrink: 0, fontFamily: "inherit", alignSelf: "flex-start" }}>
-                      削除
-                    </button>
+                    {editingId === w.id ? (
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#6B7280" }}>単語</label>
+                        <input style={{ ...S.input, marginTop: 6, marginBottom: 10, fontFamily: "'Shippori Mincho', serif", fontSize: 17 }}
+                          value={editTerm} onChange={(e) => setEditTerm(e.target.value)} />
+                        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#6B7280" }}>意味</label>
+                        <textarea style={{ ...S.input, marginTop: 6, marginBottom: 12, minHeight: 60, resize: "vertical" }}
+                          value={editMeaning} onChange={(e) => setEditMeaning(e.target.value)}
+                          placeholder="意味を入力（空欄可）" />
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <button onClick={() => saveEdit(w.id)}
+                            style={{ ...S.btn, padding: "9px 22px", fontSize: 13, letterSpacing: 1, opacity: editTerm.trim() ? 1 : 0.35 }}>
+                            更新する
+                          </button>
+                          <button onClick={cancelEdit}
+                            style={{ padding: "9px 18px", background: "#fff", color: "#6B7280", border: "1px solid #D8DCE0", borderRadius: 8, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                            やめる
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 18, fontWeight: 700 }}>{w.term}</span>
+                            {w.editedDate && (
+                              <span style={{
+                                fontFamily: "'Shippori Mincho', serif", fontSize: 10, color: "#C73E3A",
+                                border: "1.5px solid #C73E3A", borderRadius: 4, padding: "1px 6px",
+                                letterSpacing: 1, transform: "rotate(-3deg)", whiteSpace: "nowrap",
+                                background: "rgba(199,62,58,0.04)", lineHeight: 1.4,
+                              }}>編集済 {w.editedDate.replaceAll("-", ".")}</span>
+                            )}
+                          </div>
+                          {w.meaning
+                            ? <div style={{ fontSize: 14, color: "#4B5563", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{w.meaning}</div>
+                            : <div style={{ fontSize: 13, color: "#9CA3AF", fontStyle: "italic" }}>意味は未記入（編集から追記できます）</div>}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, alignItems: "flex-end" }}>
+                          <button onClick={() => startEdit(w)}
+                            style={{ border: "none", background: "none", color: "#22303F", cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 700 }}>
+                            編集
+                          </button>
+                          <button onClick={() => removeWord(w.id)}
+                            style={{ border: "none", background: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
+                            削除
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </section>
@@ -260,12 +325,15 @@ function App() {
                         padding: "16px 18px", marginBottom: 10, cursor: "pointer",
                         fontFamily: "inherit", transition: "background .15s",
                       }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
                         <span style={{ fontFamily: "'Shippori Mincho', serif", fontSize: 18, fontWeight: 700 }}>{w.term}</span>
-                        <span style={{ fontSize: 11, color: open ? "#B7C0CC" : "#9CA3AF" }}>{w.date.replaceAll("-", "/")}</span>
+                        <span style={{ fontSize: 11, color: open ? "#B7C0CC" : "#9CA3AF", flexShrink: 0, textAlign: "right" }}>
+                          {w.date.replaceAll("-", "/")}
+                          {w.editedDate && <span style={{ display: "block", color: open ? "#E9A9A6" : "#C73E3A" }}>編集 {w.editedDate.replaceAll("-", "/")}</span>}
+                        </span>
                       </div>
                       {open && (
-                        <div style={{ fontSize: 14, lineHeight: 1.7, marginTop: 10, whiteSpace: "pre-wrap" }}>{w.meaning}</div>
+                        <div style={{ fontSize: 14, lineHeight: 1.7, marginTop: 10, whiteSpace: "pre-wrap", color: w.meaning ? "inherit" : "#B7C0CC", fontStyle: w.meaning ? "normal" : "italic" }}>{w.meaning || "意味は未記入です。"}</div>
                       )}
                     </button>
                   );
