@@ -1,6 +1,6 @@
 // ビジネス単語帖 Service Worker
 // アプリ本体とCDN資産をキャッシュし、オフラインでも起動できるようにする
-const CACHE = "bizwords-v1";
+const CACHE = "bizwords-v2";
 
 // アプリシェル（同一オリジンの必須ファイル）
 const APP_SHELL = [
